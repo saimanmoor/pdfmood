@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Сервис — OCR и обработка PDF</title>
+<style>
+  :root { --accent:#2563eb; --bg:#f1f5f9; --card:#fff; --text:#0f172a; --muted:#64748b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  header { background:linear-gradient(135deg,#1e3a8a,#2563eb); color:#fff; padding:22px 28px; }
+  header h1 { margin:0; font-size:22px; }
+  header p { margin:6px 0 0; opacity:.85; font-size:13px; }
+  main { max-width:980px; margin:24px auto; padding:0 16px; display:grid; gap:16px; }
+  .card { background:var(--card); border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:18px 20px; }
+  .card h2 { margin:0 0 10px; font-size:16px; }
+  .card .desc { color:var(--muted); font-size:13px; margin-bottom:12px; }
+  label { font-size:13px; margin-right:6px; }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; margin:4px 8px 8px 0; }
+  textarea { width:100%; min-height:140px; }
+  input[type=file] { font-size:13px; margin-bottom:10px; display:block; }
+  button { background:var(--accent); color:#fff; border:none; border-radius:8px;
+           padding:9px 18px; font-size:14px; cursor:pointer; }
+  button:hover { filter:brightness(1.1); }
+  button:disabled { background:#94a3b8; cursor:wait; }
+  .status { margin-top:10px; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+  .ok { color:#15803d; } .err { color:#b91c1c; }
+  pre.result { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px;
+               max-height:340px; overflow:auto; font-size:12px; white-space:pre-wrap; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  footer { text-align:center; color:var(--muted); font-size:12px; margin:20px 0 30px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>📄 Локальный PDF-сервис</h1>
+  <p>OCR-распознавание сканов (русский + английский, конвейер Tesseract/OCRmyPDF) и полная обработка PDF. Данные не покидают ваш компьютер.</p>
+</header>
+<main>
+
+  <div class="card">
+    <h2>🔍 OCR: распознавание сканов → редактируемый/ищемый PDF</h2>
+    <div class="desc">Добавляет невидимый текстовый слой к сканированным страницам (как ABBYY FineReader): поиск, копирование, выделение. Поддерживает PDF со сканами и одиночные изображения. Выполняется долго для больших документов.</div>
+    <input type="file" id="ocrFile" accept=".pdf,image/*">
+    <div class="row">
+      <label>Язык:</label>
+      <select id="ocrLang">
+        <option value="rus+eng" selected>Русский + Английский</option>
+        <option value="rus">Русский</option>
+        <option value="eng">Английский</option>
+      </select>
+      <label>DPI:</label>
+      <select id="ocrDpi"><option>300</option><option>400</option><option>600</option><option>200</option></select>
+      <label><input type="checkbox" id="ocrForce"> перечитать все страницы (force)</label>
+    </div>
+    <button onclick="doOcrPdf(this)">Распознать → PDF</button>
+    <button onclick="doOcrText(this)">Распознать → Текст</button>
+    <div class="status" id="ocrStatus"></div>
+    <pre class="result" id="ocrResult" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2>🧾 Извлечение текста и таблиц</h2>
+    <input type="file" id="extFile" accept=".pdf">
+    <div class="row">
+      <label>Страницы (напр. 1,3-5):</label><input type="text" id="extPages" size="10">
+      <label><input type="checkbox" id="extLayout"> с сохранением макета</label>
+    </div>
+    <button onclick="doExtract('text',this)">Текст (JSON)</button>
+    <button onclick="doExtract('tables-json',this)">Таблицы (JSON)</button>
+    <button onclick="doExtract('tables-csv',this)">Таблицы (CSV)</button>
+    <button onclick="doExtract('tables-md',this)">Таблицы (Markdown)</button>
+    <button onclick="doExtract('images',this)">Изображения → ZIP</button>
+    <div class="status" id="extStatus"></div>
+    <pre class="result" id="extResult" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2>🧩 Структурная обработка</h2>
+    <div class="desc">Объединение принимает несколько PDF сразу (Ctrl/Cmd-выбор в диалоге).</div>
+    <input type="file" id="opFile" accept=".pdf" multiple>
+    <div class="row">
+      <label>Операция:</label>
+      <select id="opKind">
+        <option value="merge">Объединить (merge)</option>
+        <option value="split">Разбить на страницы / диапазоны</option>
+        <option value="rotate">Повернуть страницы</option>
+        <option value="delete">Удалить страницы</option>
+        <option value="reorder">Переставить страницы</option>
+        <option value="watermark">Водяной знак</option>
+        <option value="encrypt">Зашифровать паролем</option>
+        <option value="decrypt">Расшифровать</option>
+        <option value="compress">Сжать</option>
+        <option value="analyze">Диагностика (сканы/текст)</option>
+        <option value="to-images">Страницы → ZIP картинок</option>
+      </select>
+      <label>Параметр (страницы '2,5-7' / угол / пароль / текст знака / '1-3,4-6'):</label>
+      <input type="text" id="opParam" size="28" placeholder="—">
+    </div>
+    <button onclick="doOp(this)">Выполнить</button>
+    <div class="status" id="opStatus"></div>
+    <pre class="result" id="opResult" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2>🔄 Конвертации</h2>
+    <div class="row">
+      <input type="file" id="convImg" accept="image/*" multiple>
+      <button onclick="doImagesToPdf(this)">Изображения → PDF</button>
+    </div>
+    <hr style="border:none;border-top:1px solid #e2e8f0">
+    <textarea id="txtArea" placeholder="Вставьте или наберьте текст…"></textarea>
+    <div class="row"><label>Заголовок:</label><input type="text" id="txtTitle"></div>
+    <button onclick="doTextToPdf(this)">Текст → PDF</button>
+    <div class="status" id="convStatus"></div>
+  </div>
+
+</main>
+<footer>API с автодокументацией (Swagger): <a href="/docs" target="_blank">/docs</a> · Проверка OCR-окружения: <a href="/api/health" target="_blank">/api/health</a></footer>
+
+<script>
+async function upload(url, form){ const r = await fetch(url,{method:'POST',body:form}); 
+  if(!r.ok){ let d=''; try{ d=(await r.json()).detail||'' }catch(e){} throw new Error(r.status+' '+d);} return r; }
+function saveBlob(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
+function setStatus(el,msg,cls){ el.textContent=msg; el.className='status '+(cls||''); }
+function showPre(el,text){ el.hidden=false; el.textContent=text; }
+
+// ---- OCR ----
+async function doOcrPdf(btn){
+  const f=document.getElementById('ocrFile').files[0]; if(!f) return alert('Выберите файл');
+  const fd=new FormData(); fd.append('file',f);
+  fd.append('language',ocrLang.value); fd.append('dpi',ocrDpi.value);
+  fd.append('force_ocr',document.getElementById('ocrForce').checked);
+  btn.disabled=true; setStatus(ocrStatus,'Распознавание… это может занять время.');
+  try{ const r=await upload('/api/ocr/searchable-pdf',fd); saveBlob(await r.blob(), f.name.replace(/\.pdf$/i,'')+'.searchable.pdf');
+       setStatus(ocrStatus,'✅ Готово — PDF с текстовым слоем скачан.','ok'); }
+  catch(e){ setStatus(ocrStatus,'❌ '+e.message,'err'); } finally{ btn.disabled=false; } }
+
+async function doOcrText(btn){
+  const f=document.getElementById('ocrFile').files[0]; if(!f) return alert('Выберите файл');
+  const fd=new FormData(); fd.append('file',f);
+  fd.append('language',ocrLang.value); fd.append('dpi',ocrDpi.value);
+  btn.disabled=true; setStatus(ocrStatus,'OCR в текст…');
+  try{ const j=await (await upload('/api/ocr/text',fd)).json();
+       setStatus(ocrStatus,'✅ Распознано символов: '+j.text.length,'ok'); showPre(ocrResult,j.text); }
+  catch(e){ setStatus(ocrStatus,'❌ '+e.message,'err'); } finally{ btn.disabled=false; } }
+
+// ---- Извлечение ----
+async function doExtract(kind,btn){
+  const f=document.getElementById('extFile').files[0]; if(!f) return alert('Выберите PDF');
+  const fd=new FormData(); fd.append('file',f);
+  if(extPages.value) fd.append('pages',extPages.value);
+  let url='/api/text', extra=null;
+  if(kind.startsWith('tables')){ url='/api/tables'; fd.append('format', kind==='tables-json'?'json':kind==='tables-csv'?'csv':'markdown'); }
+  if(kind==='images') url='/api/images';
+  if(kind==='text') fd.append('layout', extLayout.checked);
+  btn.disabled=true; setStatus(extStatus,'Выполняется…');
+  try{ const r=await upload(url,fd);
+    if(kind==='images'){ saveBlob(await r.blob(), f.name.replace(/\.pdf$/i,'')+'_images.zip'); setStatus(extStatus,'✅ ZIP изображений скачан','ok'); }
+    else if(kind==='tables-json'){ const j=await r.json(); setStatus(extStatus,'✅ Таблиц найдено: '+j.tables.length,'ok'); showPre(extResult,JSON.stringify(j.tables,null,1).slice(0,20000)); }
+    else if(kind==='text'){ const j=await r.json(); setStatus(extStatus,'✅ Символов: '+j.text.length,'ok'); showPre(extResult,j.text); }
+    else { const t=await r.text(); setStatus(extStatus,'✅ Готово','ok'); showPre(extResult,t); } }
+  catch(e){ setStatus(extStatus,'❌ '+e.message,'err'); } finally{ btn.disabled=false; } }
+
+// ---- Структура ----
+async function doOp(btn){
+  const files=[...document.getElementById('opFile').files]; if(!files.length) return alert('Выберите PDF');
+  const kind=opKind.value, param=opParam.value.trim();
+  const fd=new FormData();
+  if(kind==='merge') files.forEach(f=>fd.append('files',f));
+  else { fd.append('file',files[0]);
+    if(['delete','rotate','split'].includes(kind)&&param) fd.append(kind==='split'?'ranges':'pages',param);
+    if(kind==='reorder'&&param) fd.append('order',param);
+    if(kind==='watermark') fd.append('text',param||'CONFIDENTIAL');
+    if(kind==='encrypt') fd.append('password',param||'changeme');
+    if(kind==='decrypt') fd.append('password',param); }
+  const urls={merge:'/api/merge',split:'/api/split',rotate:'/api/rotate',delete:'/api/delete-pages',
+    reorder:'/api/reorder',watermark:'/api/watermark',encrypt:'/api/encrypt',decrypt:'/api/decrypt',
+    compress:'/api/compress',analyze:'/api/analyze','to-images':'/api/convert/pdf-to-images'};
+  btn.disabled=true; setStatus(opStatus,'Выполняется…');
+  try{ const r=await upload(urls[kind],fd);
+    if(kind==='analyze'){ const j=await r.json(); setStatus(opStatus,'✅ Диагностика','ok');
+      showPre(opResult,`Страниц: ${j.pages}\nСканированные: ${j.scanned_pages.join(', ')||'нет'}\nС текстом: ${j.text_pages.length} стр.\nМетаданные: ${JSON.stringify(j.metadata)}`); }
+    else if(kind==='to-images'){ saveBlob(await r.blob(),'pages.zip'); setStatus(opStatus,'✅ ZIP страниц скачан','ok'); }
+    else if(kind==='split'&&r.headers.get('content-type')?.includes('zip')){ saveBlob(await r.blob(),'split.zip'); setStatus(opStatus,'✅ ZIP частей скачан','ok'); }
+    else { const ct=r.headers.get('content-disposition')||''; const m=ct.match(/filename\*=UTF-8''(.+)/);
+      saveBlob(await r.blob(), m?decodeURIComponent(m[1]):'result.pdf'); setStatus(opStatus,'✅ Результат скачан','ok'); } }
+  catch(e){ setStatus(opStatus,'❌ '+e.message,'err'); } finally{ btn.disabled=false; } }
+
+// ---- Конвертации ----
+async function doImagesToPdf(btn){
+  const files=[...document.getElementById('convImg').files]; if(!files.length) return alert('Выберите изображения');
+  const fd=new FormData(); files.forEach(f=>fd.append('files',f));
+  btn.disabled=true; try{ const r=await upload('/api/convert/images-to-pdf',fd);
+    saveBlob(await r.blob(),'images.pdf'); setStatus(convStatus,'✅ PDF из изображений скачан','ok'); }
+  catch(e){ setStatus(convStatus,'❌ '+e.message,'err'); } finally{ btn.disabled=false; } }
+
+async function doTextToPdf(btn){
+  const t=document.getElementById('txtArea').value; if(!t) return alert('Введите текст');
+  const fd=new FormData(); fd.append('text',t); fd.append('title',document.getElementById('txtTitle').value);
+  btn.disabled=true; try{ const r=await upload('/api/convert/text-to-pdf',fd);
+    saveBlob(await r.blob(),'text.pdf'); setStatus(convStatus,'✅ PDF создан','ok'); }
+  catch(e){ setStatus(convStatus,'❌ '+e.message,'err'); } finally{ btn.disabled=false; } }
+</script>
+</body>
+</html>

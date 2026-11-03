@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+ocrmypdf>=16.0
+pdfplumber>=0.11
+pypdf>=4.0
+python-magic>=0.4.17
+img2pdf>=0.5
+reportlab>=4.0
+Pillow>=10.0
