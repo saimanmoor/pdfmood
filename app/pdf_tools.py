@@ -10,7 +10,10 @@ import zipfile
 from pathlib import Path
 
 import img2pdf
-import magic
+try:
+    import magic  # libmagic: точное определение MIME (deploy.sh/deploy.ps1 ставят его)
+except ImportError:  # graceful fallback, если системной libmagic нет
+    magic = None
 import ocrmypdf
 import pdfplumber
 from PIL import Image
@@ -45,14 +48,36 @@ def check_environment() -> dict:
 PDF_MAGIC = b"%PDF-"
 
 
+def _sniff_mime(data: bytes) -> str:
+    """MIME по магическим байтам (работает и без libmagic)."""
+    if magic is not None:
+        try:
+            return magic.from_buffer(data, mime=True) or ""
+        except Exception:
+            pass
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    if data[:5] == PDF_MAGIC:
+        return "application/pdf"
+    return ""
+
+
 def ensure_pdf(data: bytes, name: str = "") -> None:
     """Проверяет, что данные действительно PDF (или изображение-скан)."""
     if data[:5] == PDF_MAGIC:
         return
-    mime = magic.from_buffer(data, mime=True)
+    mime = _sniff_mime(data)
     if mime and mime.startswith("image/"):
         return
-    raise ValueError(f"Файл {name!r} не является PDF (определён тип: {mime}). Ожидался application/pdf.")
+    raise ValueError(f"Файл {name!r} не является PDF (определён тип: {mime or 'неизвестен'}). Ожидался application/pdf.")
 
 
 def _open_reader(data: bytes) -> PdfReader:
@@ -110,8 +135,10 @@ def analyze_pdf(data: bytes, password: str = "") -> dict:
 DEFAULT_OCR_ARGS = dict(
     language="rus+eng",
     dpi=300,
-    output_type="textonly",        # изображение + невидимый текстовый слой
-    remove_background=True,        # очистка фона (шум «грязного» сканера)
+    # output_type не задаём: поведение задаёт skip_text/force_ocr.
+    # В ocrmypdf>=16 "textonly" переименован в "pdf"; по умолчанию слой
+    # накладывается только на распознанные страницы — как нужно.
+    remove_background=False,       # в ocrmypdf 17 временно не реализовано
     deskew=True,                   # автоматическое выпрямление страниц
     clean=True,                    # морфологическая чистка изображения
     clean_level="clean",
@@ -133,8 +160,10 @@ def run_ocr(
 
     - force_ocr=False: страницы со встроенным текстом остаются как есть,
       сканированные распознаются (output_type=textonly).
-    - force_ocr=True: все страницы растеризуются и распознаются заново
-      (output_type=none — только распознанный текст поверх изображения).
+    - force_ocr=True: все страницы растеризуются и распознаются заново,
+      но результат всё равно PDF с изображением + невидимым текстовым
+      слоем (output_type=textonly — так корректнее работает поиск/копирование;
+      output_type=none в новых ocrmypdf запрещён для файлового вывода).
     """
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / "input.pdf"
@@ -145,8 +174,6 @@ def run_ocr(
         kwargs["dpi"] = dpi
         kwargs["force_ocr"] = force_ocr
         kwargs["skip_text"] = not force_ocr
-        if force_ocr:
-            kwargs["output_type"] = "none"   # всегда наложить слой на все страницы
         ocrmypdf.ocr(str(src), str(dst), **kwargs)
         return dst.read_bytes()
 

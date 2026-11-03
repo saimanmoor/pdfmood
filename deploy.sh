@@ -70,7 +70,7 @@ install_with_apt() {
   DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y \
     python3 python3-venv python3-pip \
     tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng \
-    ghostscript jbig2enc qpdf libmagic1 curl
+    ghostscript jbig2enc qpdf libmagic1 unpaper curl
   PKG_INSTALLED=1
 }
 
@@ -103,12 +103,12 @@ install_with_zypper() {
   $SUDO zypper --non-interactive install \
     python3 python3-pip \
     tesseract-ocr tesseract-ocr_rus \
-    ghostscript jbig2enc qpdf libmagic1
+    ghostscript jbig2enc qpdf libmagic1 unpaper
   PKG_INSTALLED=1
 }
 
 install_with_brew() {
-  brew install python3 tesseract ghostscript jbig2enc qpdf libmagic || true
+  brew install python3 tesseract ghostscript jbig2enc qpdf libmagic unpaper || true
   # Языковые данные Tesseract через brew уже включены в формулу tesseract
   PKG_INSTALLED=1
 }
