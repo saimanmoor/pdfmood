@@ -24,18 +24,27 @@ param(
     [switch]$NoRun
 )
 
+# =============================================================================
+#  MAIN (wrapped in try/catch so any error is written to deploy.log and the
+#  user sees a readable message instead of a window that disappears)
+# =============================================================================
+try {
+
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = `
     [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 try { chcp 65001 | Out-Null } catch { }
 
+# --- Logging to console AND deploy.log (so failures are never lost) ---
 $Root      = Split-Path -Parent $MyInvocation.MyCommand.Path
+$LogPath   = Join-Path $Root "deploy.log"
 $ToolsDir  = Join-Path $Root "tools"          # portable utilities go here
 $VenvDir   = Join-Path $Root ".venv"
+Set-Content -Path $LogPath -Value ("PDF service deployment log - " + (Get-Date)) -Encoding UTF8
 
-function Log($msg)  { Write-Host "[deploy] $msg" -ForegroundColor Green }
-function Warn($msg) { Write-Host "[deploy] $msg" -ForegroundColor Yellow }
+function Log($msg)  { Write-Host "[deploy] $msg" -ForegroundColor Green;  Add-Content $LogPath "[deploy] $msg" }
+function Warn($msg) { Write-Host "[deploy] $msg" -ForegroundColor Yellow; Add-Content $LogPath "[WARN ] $msg" }
 
 function Ensure-Dir($p) { if (-not (Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null } }
 
@@ -267,3 +276,17 @@ Log "Starting PDF service at http://127.0.0.1:$Port"
 Log "  Web UI: http://127.0.0.1:$Port/   API docs: http://127.0.0.1:$Port/docs"
 Log "  Stop: Ctrl+C"
 & $VPy -m uvicorn app.main:app --host 127.0.0.1 --port $Port
+
+} catch {
+    # Any fatal error: print it nicely, save to deploy.log, keep window alive
+    $errText = Out-String -InputObject $_ | Out-String
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host " DEPLOYMENT STOPPED BY AN ERROR:" -ForegroundColor Red
+    Write-Host $errText
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host "Full log saved to: $LogPath"
+    try { Add-Content -Path $LogPath -Value ("FATAL ERROR:`n" + $errText) } catch { }
+    Read-Host "Press ENTER to close this window"
+    exit 1
+}
